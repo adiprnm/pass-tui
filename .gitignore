@@ -1,0 +1,4 @@
+# Spinel build output. The committed native binary lives at bin/pt.
+build/
+*.gem
+.DS_Store

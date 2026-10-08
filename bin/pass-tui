@@ -1,0 +1,83 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+#
+# pass-tui -- a terminal UI for the standard unix password manager.
+#
+#   bin/pass-tui                        # interactive
+#   bin/pass-tui --store ~/.password-store
+#   bin/pass-tui --snapshot --w=100 --h=30
+#   bin/pass-tui --list                 # entry names, no tty needed
+#
+# ruby-tui is expected at ../ruby-tui next to this project; override with
+# RUBY_TUI_LIB when it lives somewhere else.
+#
+# Arguments are parsed by hand rather than with OptionParser: Spinel's
+# optparse package ignores the `OptionParser.new { }` block, so the
+# hand-rolled loop is what actually works on both engines.
+
+$LOAD_PATH.unshift(ENV['RUBY_TUI_LIB'] || File.expand_path('../../ruby-tui/lib', __dir__))
+$LOAD_PATH.unshift(File.expand_path('../lib', __dir__))
+
+require 'stringio'
+require 'pass_tui'
+
+USAGE = <<~TEXT
+  pass-tui -- a TUI for the standard unix password manager
+
+    pass-tui                          interactive
+    pass-tui --store=DIR              use another password store
+    pass-tui --config=PATH            use another config file
+    pass-tui --theme=NAME             dark (default) or plain
+    pass-tui --list                   print entry names and exit
+    pass-tui --snapshot               dump one frame to stdout and exit
+    pass-tui --snapshot --select=NAME --w=100 --h=30
+
+  keys: arrows move · enter open · / search · c copy · u user · r reveal
+        n new · e edit · d delete · s settings · ? help · q quit
+TEXT
+
+options = { snapshot: false, list: false, w: nil, h: nil }
+ARGV.each do |arg|
+  case arg
+  when '--snapshot'            then options[:snapshot] = true
+  when '--list'                then options[:list] = true
+  when /\A--store=(.+)\z/       then options[:store] = Regexp.last_match(1)
+  when /\A--config=(.+)\z/      then options[:config] = Regexp.last_match(1)
+  when /\A--theme=(\w+)\z/      then options[:theme] = Regexp.last_match(1)
+  when /\A--select=(.+)\z/      then options[:select] = Regexp.last_match(1)
+  when /\A--w=(\d+)\z/          then options[:w] = Regexp.last_match(1).to_i
+  when /\A--h=(\d+)\z/          then options[:h] = Regexp.last_match(1).to_i
+  when '-h', '--help'           then puts USAGE
+                                    exit 0
+  else
+    warn "pass-tui: unknown option #{arg.inspect}"
+    puts USAGE
+    exit 1
+  end
+end
+
+config = PassTui::Config.load(options[:config] || PassTui::Config.default_path)
+config.store_dir = options[:store] if options[:store]
+config.theme = options[:theme] if options[:theme]
+PassTui::Theme.install(config.theme.to_sym)
+
+if options[:list]
+  puts PassTui::Store.new(config.store_dir, editor: config.editor).entries
+  exit 0
+end
+
+ui = PassTui::UI.new(config: config)
+
+if options[:snapshot]
+  app = TUI::App.new(ui.root, out: StringIO.new,
+                     size: [options[:w] || 100, options[:h] || 30])
+  ui.attach(app)
+  if options[:select]
+    ui.search.value = options[:select]
+    ui.select_path(options[:select])
+    ui.flush_pending(force: true)
+  end
+  print app.render_frame.lines.join("\n"), "\n"
+else
+  ui.run
+end
