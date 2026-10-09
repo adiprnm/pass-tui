@@ -29,18 +29,20 @@ USAGE = <<~TEXT
     pass-tui --config=PATH            use another config file
     pass-tui --theme=NAME             dark (default) or plain
     pass-tui --list                   print entry names and exit
+    pass-tui --sync                   pull + push the store over git and exit
     pass-tui --snapshot               dump one frame to stdout and exit
     pass-tui --snapshot --select=NAME --w=100 --h=30
 
   keys: arrows move · enter open · / search · c copy · u user · r reveal
-        n new · e edit · d delete · s settings · ? help · q quit
+        n new · e edit · d delete · g sync · s settings · ? help · q quit
 TEXT
 
-options = { snapshot: false, list: false, w: nil, h: nil }
+options = { snapshot: false, list: false, sync: false, w: nil, h: nil }
 ARGV.each do |arg|
   case arg
   when '--snapshot'            then options[:snapshot] = true
   when '--list'                then options[:list] = true
+  when '--sync'                then options[:sync] = true
   when /\A--store=(.+)\z/       then options[:store] = Regexp.last_match(1)
   when /\A--config=(.+)\z/      then options[:config] = Regexp.last_match(1)
   when /\A--theme=(\w+)\z/      then options[:theme] = Regexp.last_match(1)
@@ -63,6 +65,18 @@ PassTui::Theme.install(config.theme.to_sym)
 
 if options[:list]
   puts PassTui::Store.new(config.store_dir, editor: config.editor).entries
+  exit 0
+end
+
+if options[:sync]
+  store = PassTui::Store.new(config.store_dir, editor: config.editor)
+  begin
+    store.sync
+  rescue PassTui::Store::Error => error
+    warn "pass-tui: #{error.message}"
+    exit 1
+  end
+  puts 'sync ok'
   exit 0
 end
 

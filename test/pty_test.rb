@@ -60,7 +60,7 @@ test 'bin/pass-tui renders, takes keys and restores the terminal' do
   assert_includes out, TUI::Term::ALT_OFF
   assert_includes out, TUI::Term::HIDE_CURSOR
   assert_includes out, TUI::Term::SHOW_CURSOR
-  assert_includes text, 'Entri', 'the tree pane rendered'
+  assert_includes text, 'Entries', 'the tree pane rendered'
   assert_includes text, 'rootpw', 'the search, reveal and detail path ran'
 ensure
   ENV['PATH'] = old_path

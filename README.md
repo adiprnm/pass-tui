@@ -6,9 +6,9 @@ tree of your `pass` entries on the left, the selected entry's metadata on
 the right.
 
 ```
-╭ pass-tui ──────────  ↑↓ pilih · enter buka · / cari · ? bantuan · q keluar  ─────────────────────╮
-│╭ Entri ────────────────────── 4 entri ╮╭ Detail ──────────────── Siap. ──────────── example.com ╮│
-││ cari entri…                          ││ web › example.com                                      ││
+╭ pass-tui ────────── ↑↓ select · enter open · / search · g sync · ? help · q quit ────────────────╮
+│╭ Entries ────────────────── 4 entries ╮╭ Detail ─────────────── Ready. ──────────── example.com ╮│
+││ search entries…                      ││ web › example.com                                      ││
 ││  ▸ app/                              ││────────────────────────────────────────────────────────││
 ││  ▾ web/                              ││╭ Password ────────────────────────────────  r reveal  ╮││
 ││▌     example.com                     │││ •••••••••                                            │││
@@ -22,7 +22,7 @@ the right.
 ││                                      │││ https://example.com                                  │││
 ││                                      ││╰──────────────────────────────────────────────────────╯││
 ││                                      ││                                                        ││
-││                                      ││╭ Catatan ─────────────────────────────────────────────╮││
+││                                      ││╭ Notes ───────────────────────────────────────────────╮││
 ││                                      │││ recovery codes:                                      │││
 ││                                      │││   1111 2222                                          │││
 ││                                      ││╰──────────────────────────────────────────────────────╯││
@@ -39,7 +39,7 @@ setup keep working exactly as configured.
 Every credential field is drawn the way HTML draws an input: its own
 bordered box with the field's name as the *legend* on the top border, and
 the key that acts on it on the right of the legend. Folders get a short
-`Ringkasan`/`Isi` card instead.
+`Summary`/`Contents` card instead.
 
 The one place colour means something is a revealed secret. While a password
 is sealed its compartment is amber and its value is bullets; press `r` and
@@ -96,16 +96,11 @@ pt --store=~/.password-store              # a different store
 pt --config=/tmp/cfg.json                 # a different config file
 pt --theme=plain                          # no colours at all
 pt --list                                 # entry names, no tty needed
+pt --sync                                 # git pull + push the store, then exit
 pt --snapshot --w=100 --h=30              # one frame to stdout
 ```
 
-The `bin/pass-tui` path works too, from inside the checkout. The
-repository also ships a prebuilt native binary at `bin/pt`, so you can run
-it without Ruby at all:
-
-```sh
-./bin/pt --help
-```
+The `bin/pass-tui` path works too, from inside the checkout.
 
 ## Keys
 
@@ -123,6 +118,7 @@ it without Ruby at all:
 | `n` | new entry (a form: name, username, password) |
 | `e` | edit the entry (opens `$EDITOR`) |
 | `d` | delete (`y`/`enter` confirms, `n`/`esc` cancels) |
+| `g` | sync the store over git (`pull --rebase`, then `push`) |
 | `s` | settings |
 | `?` | help |
 | `ctrl-d` / `ctrl-u` | scroll the detail pane |
@@ -195,6 +191,22 @@ The first of `wl-copy`, `xclip`, `xsel`, `pbcopy` found on `PATH` is used.
 After `clip_time` seconds the selection is cleared, and it is cleared on
 quit as well.
 
+## Sync over git
+
+`pass` already versions the store with git when it lives in a repository
+(`pass git init`), committing every insert/edit/rm for you. pass-tui adds
+the missing half -- moving those commits to and from a remote:
+
+* `g` in the TUI, or `pt --sync` from a script, runs `pass git pull
+  --rebase` followed by `pass git push` and then reloads the tree, so
+  changes made on another machine appear without restarting.
+* A store that is not a git repository is left alone, with a note in the
+  status bar instead of a failing command.
+* `GIT_TERMINAL_PROMPT=0` is set for the subprocess, so a remote that
+  wants credentials fails immediately rather than freezing the TUI. Cache
+  the credentials (`git credential-store`, an SSH agent, or a token in the
+  remote URL) for unattended sync.
+
 ## Building with Spinel
 
 The project is written to compile ahead-of-time with
@@ -222,7 +234,7 @@ The output binary is standalone.
 ruby test/run.rb      # or: rake test
 ```
 
-43 tests, stdlib only, on the same tiny harness ruby-tui uses: config,
+55 tests, stdlib only, on the same tiny harness ruby-tui uses: config,
 entry parsing, the tree model, the store and clipboard shell plumbing, the
 UI (including the fieldset layout and the reveal state) driven off-screen,
 and one end-to-end session in a pty that asserts the terminal is restored.

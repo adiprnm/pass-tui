@@ -65,6 +65,28 @@ module PassTui
       true
     end
 
+    # True when the store is a git repository, i.e. `pass git ...` will
+    # work. `pass` creates `.git` as a directory (a file marks a worktree).
+    def git?
+      File.exist?(File.join(@dir, '.git'))
+    end
+
+    # Run `pass git <args>` and return its output. `pass` auto-commits each
+    # insert/edit/rm, so the local history is already current.
+    def git(*args)
+      capture('git', *args)
+    end
+
+    # Sync with the remote: rebase the local history on top of the remote,
+    # then push. This is the documented `pass` multi-machine workflow.
+    def sync
+      raise Error, 'not a git repository' unless git?
+
+      pull = capture('git', 'pull', '--rebase')
+      push = capture('git', 'push')
+      { pull: pull, push: push }
+    end
+
     # Interactive commands run in the foreground and expect the caller to
     # have suspended the TUI, because they are about to hand the terminal to
     # $EDITOR (or to pinentry).
@@ -74,6 +96,9 @@ module PassTui
 
     def env
       base = { 'PASSWORD_STORE_DIR' => @dir }
+      # Keep git from blocking the TUI on a credential prompt; a failed
+      # fetch then surfaces as an error instead of a frozen interface.
+      base['GIT_TERMINAL_PROMPT'] = '0'
       unless @editor.to_s.empty?
         base['EDITOR'] = @editor.to_s
         base['VISUAL'] = @editor.to_s
@@ -98,7 +123,7 @@ module PassTui
     def interactive
       with_env do
         ok = yield
-        raise Error, 'perintah pass gagal' unless ok
+        raise Error, 'pass command failed' unless ok
       end
       true
     end

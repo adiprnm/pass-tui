@@ -140,6 +140,10 @@ def write_fake_pass(dir, entries)
       File.write(log, "#{name}\n#{content}", mode: 'a') if log
     when 'edit'
       # no-op
+    when 'git'
+      log = ENV['FAKE_PASS_LOG']
+      File.write(log, "git #{ARGV[1..].join(' ')}\n", mode: 'a') if log
+      exit 1 if ENV['FAKE_PASS_GIT_FAIL']
     else
       warn "pass: unknown command #{ARGV[0]}"
       exit 1

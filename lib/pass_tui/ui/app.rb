@@ -18,7 +18,7 @@ require_relative 'fieldset'
 
 module PassTui
   class UI
-    HINTS = ' ↑↓ pilih · enter buka · / cari · ? bantuan · q keluar '
+    HINTS = ' ↑↓ select · enter open · / search · g sync · ? help · q quit '
     DEBOUNCE = 0.35
 
     DIALOG_CONFIRM  = 0
@@ -27,24 +27,25 @@ module PassTui
     DIALOG_HELP     = 3
 
     HELP = [
-      ['Navigasi', :subtitle],
-      ['  ↑/↓  j/k      pindah entri', :text],
-      ['  →/l  enter    buka / tutup folder', :text],
-      ['  ←/h           tutup folder', :text],
-      ['  /             cari entri', :text],
-      ['  tab           pindah fokus', :text],
+      ['Navigation', :subtitle],
+      ['  ↑/↓  j/k      move between entries', :text],
+      ['  →/l  enter    open / close a folder', :text],
+      ['  ←/h           close a folder', :text],
+      ['  /             search entries', :text],
+      ['  tab           move focus', :text],
       ['', :text],
-      ['Aksi', :subtitle],
-      ['  enter         reveal password / buka folder', :text],
+      ['Actions', :subtitle],
+      ['  enter         reveal password / open a folder', :text],
       ['  r             reveal password', :text],
-      ['  c             salin password (auto-clear)', :text],
-      ['  u             salin user', :text],
-      ['  n             entri baru (form username + password)', :text],
-      ['  e             edit entri (pakai $EDITOR)', :text],
-      ['  d             hapus entri', :text],
+      ['  c             copy password (auto-clear)', :text],
+      ['  u             copy user', :text],
+      ['  n             new entry (username + password form)', :text],
+      ['  e             edit entry (uses $EDITOR)', :text],
+      ['  d             delete entry', :text],
+      ['  g             sync over git (pull + push)', :text],
       ['  s             settings', :text],
       ['  ctrl-d/u      scroll detail', :text],
-      ['  q / ctrl-c    keluar', :text]
+      ['  q / ctrl-c    quit', :text]
     ].freeze
 
     attr_reader :root, :tree_view, :search, :config, :store, :clipboard, :status
@@ -64,12 +65,12 @@ module PassTui
       @clip_label = nil
       @pending_delete = nil
       @active_dialog = nil
-      @status = 'Siap.'
+      @status = 'Ready.'
       @attached = false
 
       build
       reload
-      message('Siap.')
+      message('Ready.')
       self
     end
 
@@ -79,9 +80,9 @@ module PassTui
       @root = TUI::Layout::Box.new(title: 'pass-tui', title_style: :brand,
                                    title_right_style: :brand_path, footer: HINTS)
 
-      @left_box = TUI::Layout::Box.new(title: 'Entri')
+      @left_box = TUI::Layout::Box.new(title: 'Entries')
       left = TUI::Layout::Stack.new(direction: :vertical)
-      @search = TUI::Input.new(placeholder: 'cari entri…', padding: 1,
+      @search = TUI::Input.new(placeholder: 'search entries…', padding: 1,
                                hint_cursor_style: :placeholder)
       @search.on(TUI::Events::CHANGE) { refresh_rows }
       @search.on(TUI::Events::SUBMIT) { @ui&.focus(@tree_view) }
@@ -124,19 +125,19 @@ module PassTui
     end
 
     def build_confirm_dialog
-      box = TUI::Layout::Box.new(title: 'Konfirmasi')
+      box = TUI::Layout::Box.new(title: 'Confirm')
       stack = TUI::Layout::Stack.new(direction: :vertical, gap: 1)
       @confirm_label = TUI::Label.new('', style: :text, align: :center)
 
       row = TUI::Layout::Stack.new(direction: :horizontal, gap: 2)
-      @confirm_yes = TUI::Button.new('Hapus')
-      @confirm_no = TUI::Button.new('Batal')
+      @confirm_yes = TUI::Button.new('Delete')
+      @confirm_no = TUI::Button.new('Cancel')
       @confirm_yes.on(TUI::Events::PRESS) { perform_delete }
       @confirm_no.on(TUI::Events::PRESS) { close_modal }
       row.add(TUI::Layout::Center.new(@confirm_yes), size: TUI.flex(1))
       row.add(TUI::Layout::Center.new(@confirm_no), size: TUI.flex(1))
 
-      hint = TUI::Label.new('y / enter hapus · n / esc batal', style: :hint, align: :center)
+      hint = TUI::Label.new('y / enter delete · n / esc cancel', style: :hint, align: :center)
       stack.add(TUI::Layout::Spacer.new, size: TUI.fixed(1))
       stack.add(@confirm_label, size: TUI.fixed(1))
       stack.add(row, size: TUI.fixed(1))
@@ -146,19 +147,19 @@ module PassTui
     end
 
     def build_new_dialog
-      box = TUI::Layout::Box.new(title: 'Entri Baru')
+      box = TUI::Layout::Box.new(title: 'New Entry')
       stack = TUI::Layout::Stack.new(direction: :vertical, gap: 1)
 
       @new_form = TUI::Form.new(label_width: 10)
-      @new_name = @new_form.text(:name, 'Nama', required: true, width: 36,
-                                 placeholder: 'web/contoh.com',
+      @new_name = @new_form.text(:name, 'Name', required: true, width: 36,
+                                 placeholder: 'web/example.com',
                                  validate: method(:validate_new_name))
-      @new_form.text(:username, 'Username', width: 36, placeholder: 'nama pengguna')
+      @new_form.text(:username, 'Username', width: 36, placeholder: 'username')
       @new_form.password(:password, 'Password', width: 36, required: true)
-      @new_form.button('Simpan')
+      @new_form.button('Save')
       @new_form.on(TUI::Events::SUBMIT) { |values| create_entry(values) }
 
-      hint = TUI::Label.new('disimpan langsung lewat pass (gpg)', style: :hint, align: :center)
+      hint = TUI::Label.new('saved directly through pass (gpg)', style: :hint, align: :center)
       stack.add(@new_form, size: TUI.auto)
       stack.add(hint, size: TUI.fixed(1))
       box.add(stack)
@@ -173,10 +174,10 @@ module PassTui
       @settings_form.text(:store_dir, 'Store dir', width: 40, required: true)
       @settings_form.text(:clip_time, 'Clip detik', width: 8)
       @settings_form.text(:editor, 'Editor', width: 24)
-      @theme_field = @settings_form.radio(:theme, 'Tema', options: PassTui::Theme::NAMES,
+      @theme_field = @settings_form.radio(:theme, 'Theme', options: PassTui::Theme::NAMES,
                                           orientation: :horizontal)
       @theme_radio = @theme_field.editor
-      @settings_form.button('Simpan')
+      @settings_form.button('Save')
       @settings_form.on(TUI::Events::SUBMIT) { |values| save_settings(values) }
 
       hint = TUI::Label.new("config: #{Config.default_path}", style: :hint)
@@ -187,7 +188,7 @@ module PassTui
     end
 
     def build_help_dialog
-      box = TUI::Layout::Box.new(title: 'Bantuan')
+      box = TUI::Layout::Box.new(title: 'Help')
       stack = TUI::Layout::Stack.new(direction: :vertical)
       HELP.each { |entry| stack.add(TUI::Label.new(entry[0], style: entry[1]), size: TUI.fixed(1)) }
       stack.add(TUI::Label.new('', style: :text), size: TUI.fixed(1))
@@ -238,6 +239,7 @@ module PassTui
       @ui.on_key('y') { perform_delete if @active_dialog == DIALOG_CONFIRM }
       @ui.on_key('e') { edit_entry }
       @ui.on_key('d') { confirm_delete }
+      @ui.on_key('g') { sync_store }
       @ui.on_key('s') { open_settings }
       @ui.on_key(:ctrl_d) { @detail_viewport.scroll_by(5) }
       @ui.on_key(:ctrl_u) { @detail_viewport.scroll_by(-5) }
@@ -254,7 +256,7 @@ module PassTui
       @collapsed = Set.new(@tree.folder_paths)
       @entry_cache.clear
       @revealed = nil
-      @left_box.title_right = "#{@entries.length} entri"
+      @left_box.title_right = "#{@entries.length} entries"
       refresh_rows
       self
     end
@@ -330,7 +332,7 @@ module PassTui
       return if modal?
 
       node = selected_leaf
-      return message('Pilih entri dulu') unless node
+      return message('Select an entry first') unless node
 
       toggle_reveal_for(node)
     end
@@ -370,7 +372,7 @@ module PassTui
         @entry_cache[path] = Entry.parse(path, content)
       rescue Store::Error => error
         @entry_cache[path] = :error
-        message("Gagal membuka #{path}: #{first_line(error.message)}")
+        message("Failed to open #{path}: #{first_line(error.message)}")
       end
       self
     end
@@ -384,13 +386,13 @@ module PassTui
       if node.nil?
         @detail_box.title_right = nil
         set_header(nil, '')
-        add_placeholder('Tidak ada entri', 'Tekan n untuk membuat entri baru')
+        add_placeholder('No entry selected', 'Press n to create a new entry')
         return self
       end
 
       crumb = breadcrumb(node.path)
       if node.folder?
-        @detail_box.title_right = "#{@tree.count(node)} entri"
+        @detail_box.title_right = "#{@tree.count(node)} entries"
         set_header(crumb[0], "#{crumb[1]}/")
         add_folder_fields(node)
         return self
@@ -400,9 +402,9 @@ module PassTui
       set_header(crumb[0], crumb[1])
       entry = @entry_cache[node.path]
       if entry.nil?
-        add_placeholder('Membuka…', 'entri sedang didekripsi')
+        add_placeholder('Opening…', 'decrypting entry')
       elsif entry == :error
-        add_placeholder('Gagal membuka entri', 'lihat status di bawah')
+        add_placeholder('Failed to open entry', 'see the status below')
       else
         add_entry_fields(entry, node)
       end
@@ -432,7 +434,7 @@ module PassTui
       return if modal?
 
       node = selected_leaf
-      return message('Pilih entri dulu') unless node
+      return message('Select an entry first') unless node
 
       entry = loaded_entry(node)
       return unless entry
@@ -444,13 +446,13 @@ module PassTui
       return if modal?
 
       node = selected_leaf
-      return message('Pilih entri dulu') unless node
+      return message('Select an entry first') unless node
 
       entry = loaded_entry(node)
       return unless entry
 
       user = entry.user
-      return message("Tidak ada field user di #{node.name}") if user.nil? || user.empty?
+      return message("No user field in #{node.name}") if user.nil? || user.empty?
 
       copy_to_clipboard(user, "User #{node.name}")
     end
@@ -476,42 +478,42 @@ module PassTui
       begin
         @store.insert(name, content)
       rescue Store::Error => error
-        return message("Gagal membuat #{name}: #{first_line(error.message)}")
+        return message("Failed to create #{name}: #{first_line(error.message)}")
       end
       reload
       expand_to(name)
       refresh_rows(select: name)
       flush_pending(force: true)
-      message("#{name} dibuat")
+      message("#{name} created")
     end
 
     def edit_entry
       return if modal?
 
       node = selected_leaf
-      return message('Pilih entri dulu') unless node
+      return message('Select an entry first') unless node
 
       begin
         with_suspended { @store.edit(node.path) }
       rescue Store::Error => error
-        return message("Gagal edit #{node.path}: #{first_line(error.message)}")
+        return message("Failed to edit #{node.path}: #{first_line(error.message)}")
       end
       @entry_cache.delete(node.path)
       @entries = @store.entries
       @tree = Tree.new(@entries)
       refresh_rows(select: node.path)
       flush_pending(force: true)
-      message("#{node.path} disimpan")
+      message("#{node.path} saved")
     end
 
     def confirm_delete
       return if modal?
 
       node = selected_leaf
-      return message('Pilih entri dulu') unless node
+      return message('Select an entry first') unless node
 
       @pending_delete = node.path
-      @confirm_label.text = "Hapus #{node.path}?"
+      @confirm_label.text = "Delete #{node.path}?"
       open_dialog(DIALOG_CONFIRM)
       @confirm_yes.focus!
       self
@@ -525,11 +527,32 @@ module PassTui
       begin
         @store.remove(name)
       rescue Store::Error => error
-        return message("Gagal hapus #{name}: #{first_line(error.message)}")
+        return message("Failed to delete #{name}: #{first_line(error.message)}")
       end
       @entry_cache.delete(name)
       reload
-      message("Dihapus: #{name}")
+      message("Deleted: #{name}")
+    end
+
+    # Pull the remote history and push the local one through `pass git`.
+    # The store may not be a repository at all, so say so instead of
+    # shelling out to a git command that cannot work.
+    def sync_store
+      return if modal?
+
+      unless @store.git?
+        return message('Store is not a git repo; sync skipped')
+      end
+
+      message('Syncing over git…')
+      begin
+        @store.sync
+      rescue Store::Error => error
+        return message("Sync failed: #{first_line(error.message)}")
+      end
+      reload
+      message('Git sync complete (pull + push)')
+      self
     end
 
     def open_settings
@@ -552,13 +575,13 @@ module PassTui
       begin
         @config.save
       rescue StandardError => error
-        return message("Gagal menyimpan config: #{error.message}")
+        return message("Failed to save config: #{error.message}")
       end
       PassTui::Theme.install(@config.theme.to_sym)
       @store = Store.new(@config.store_dir, editor: @config.editor)
       close_modal
       reload
-      message('Settings disimpan')
+      message('Settings saved')
     end
 
     # ---------------------------------------------------------------- modal
@@ -638,18 +661,18 @@ module PassTui
     end
 
     def add_folder_fields(node)
-      add_field('Ringkasan', ["#{@tree.count(node)} entri di dalamnya"])
+      add_field('Summary', ["#{@tree.count(node)} entries inside"])
       children = node.children
       names = children.first(8).map { |child| child.folder? ? "#{child.name}/" : child.name }
-      add_field('Isi', names, value_style: :muted) unless names.empty?
+      add_field('Contents', names, value_style: :muted) unless names.empty?
       return unless children.length > 8
 
-      add_field('Lainnya', ["+#{children.length - 8} entri lagi"], value_style: :hint)
+      add_field('More', ["+#{children.length - 8} more entries"], value_style: :hint)
     end
 
     def add_entry_fields(entry, node)
       if entry.password.empty?
-        add_field('Password', ['(kosong)'], hint: 'r reveal',
+        add_field('Password', ['(empty)'], hint: 'r reveal',
                   legend: :legend_secret, value_style: :sealed)
       elsif @revealed == node.path
         add_field('Password', [entry.password], hint: 'r hide',
@@ -663,7 +686,7 @@ module PassTui
         add_field(field_label(key), [value], hint: field_hint(key), legend: field_legend(key))
       end
 
-      add_field('Catatan', entry.notes, legend: :legend_note, value_style: :muted) unless entry.notes.empty?
+      add_field('Notes', entry.notes, legend: :legend_note, value_style: :muted) unless entry.notes.empty?
     end
 
     def mask(secret)
@@ -721,7 +744,7 @@ module PassTui
       if entry.is_a?(Entry)
         entry
       else
-        message("Entri #{node.path} belum bisa dibuka") unless entry == :error
+        message("Entry #{node.path} could not be opened") unless entry == :error
         nil
       end
     end
@@ -730,12 +753,12 @@ module PassTui
       begin
         @clipboard.copy(text)
       rescue Clipboard::Error, StandardError => error
-        return message("Clipboard gagal: #{first_line(error.message)}")
+        return message("Clipboard failed: #{first_line(error.message)}")
       end
       @clip_at = now
       @clip_label = label
       update_clip_indicator
-      message("#{label} disalin · dikosongkan dalam #{@config.clip_time}s")
+      message("#{label} copied · cleared in #{@config.clip_time}s")
     end
 
     def expire_clipboard
@@ -743,7 +766,7 @@ module PassTui
       return if (now - @clip_at) < @config.clip_time
 
       clear_clipboard
-      message('Clipboard dikosongkan')
+      message('Clipboard cleared')
     end
 
     def with_suspended
@@ -767,10 +790,10 @@ module PassTui
 
     def validate_new_name(value)
       name = value.to_s.strip
-      return 'wajib diisi' if name.empty?
-      return 'awalan / tidak valid' if name.start_with?('/')
-      return 'tidak boleh ada ..' if name.include?('..')
-      return 'sudah ada' if @store.entries.include?(name)
+      return 'required' if name.empty?
+      return 'leading / is not valid' if name.start_with?('/')
+      return 'must not contain ..' if name.include?('..')
+      return 'already exists' if @store.entries.include?(name)
 
       true
     end

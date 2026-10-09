@@ -40,7 +40,7 @@ module PassTui
     end
 
     def copy(text)
-      raise Error, 'tidak ada tool clipboard (wl-copy/xclip/xsel/pbcopy)' unless @backend
+      raise Error, 'no clipboard tool found (wl-copy/xclip/xsel/pbcopy)' unless @backend
 
       producer = "printf '%s' #{Shell.escape(text)}"
       run(Shell.pipeline(producer, @backend.bin, @backend.args))
@@ -64,7 +64,7 @@ module PassTui
 
     def run(command)
       ok = system('sh', '-c', command)
-      raise Error, "clipboard gagal (#{@backend.bin})" unless ok
+      raise Error, "clipboard failed (#{@backend.bin})" unless ok
     end
 
     def which(bin)

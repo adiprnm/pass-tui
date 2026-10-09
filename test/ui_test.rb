@@ -15,11 +15,11 @@ test 'the tree and the detail pane render' do
   app = attach_ui(ui)
   text = ui_text(app)
 
-  assert_includes text, 'Entri'
+  assert_includes text, 'Entries'
   assert_includes text, 'web'
   assert_includes text, 'db'
   assert_includes text, 'Detail'
-  assert_includes text, '4 entri'
+  assert_includes text, '4 entries'
 end
 
 test 'selecting an entry loads it and masks the password' do
@@ -109,11 +109,11 @@ test 'delete removes the entry after confirmation' do
 
   ui.confirm_delete
   assert ui.modal?, 'the confirmation dialog is up'
-  assert ui.instance_variable_get(:@confirm_yes).focused?, 'Hapus is focused by default'
+  assert ui.instance_variable_get(:@confirm_yes).focused?, 'Delete is focused by default'
 
   ui.perform_delete
   refute ui.tree_view.rows.any? { |row| row.node.path == 'web/other.org' }
-  assert ui.status.include?('Dihapus')
+  assert ui.status.include?('Deleted')
 end
 
 test 'creating an entry stores the username and password' do
@@ -124,7 +124,7 @@ test 'creating an entry stores the username and password' do
   file = File.join(ui.store.dir, 'web/new.gpg')
   assert File.file?(file), 'the entry file is written'
   assert_equal "username:carol\npassword:p@ss word\n", File.read(file)
-  assert ui.status.include?('dibuat')
+  assert ui.status.include?('created')
 end
 
 test 'a new entry with an empty username still writes both lines' do
@@ -151,9 +151,9 @@ end
 test 'new entry names are validated' do
   ui = make_ui(UI_ENTRIES)
   assert_equal true, ui.send(:validate_new_name, 'brand/new')
-  assert_equal 'sudah ada', ui.send(:validate_new_name, 'db')
-  assert_equal 'wajib diisi', ui.send(:validate_new_name, '   ')
-  assert_equal 'tidak boleh ada ..', ui.send(:validate_new_name, '../x')
+  assert_equal 'already exists', ui.send(:validate_new_name, 'db')
+  assert_equal 'required', ui.send(:validate_new_name, '   ')
+  assert_equal 'must not contain ..', ui.send(:validate_new_name, '../x')
 end
 
 test 'settings save to the config file and switch the store' do
@@ -180,10 +180,35 @@ test 'the help dialog opens and closes' do
 
   ui.open_dialog(PassTui::UI::DIALOG_HELP)
   assert ui.modal?
-  assert_includes ui_text(app), 'Bantuan'
+  assert_includes ui_text(app), 'Help'
 
   ui.close_modal
   refute ui.modal?
+end
+
+test 'g syncs the store over git' do
+  ui = make_ui(UI_ENTRIES)
+  FileUtils.mkdir_p(File.join(ui.store.dir, '.git'))
+  log = File.join(tmp_dir('pass-tui-log'), 'git.log')
+  ENV['FAKE_PASS_LOG'] = log
+  attach_ui(ui)
+
+  ui.sync_store
+
+  assert_includes ui.status, 'Git sync complete'
+  assert_includes File.read(log), "git pull --rebase\n"
+  assert_includes File.read(log), "git push\n"
+ensure
+  ENV.delete('FAKE_PASS_LOG')
+end
+
+test 'sync reports when the store is not a git repository' do
+  ui = make_ui(UI_ENTRIES)
+  attach_ui(ui)
+
+  ui.sync_store
+
+  assert_includes ui.status, 'not a git repo'
 end
 
 test 'the layout fits exactly at several sizes' do
