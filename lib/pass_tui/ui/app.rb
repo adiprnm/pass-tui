@@ -63,6 +63,9 @@ module PassTui
       @pending_at = 0.0
       @clip_at = nil
       @clip_label = nil
+      @syncing = false
+      @sync_queue = nil
+      @sync_thread = nil
       @pending_delete = nil
       @active_dialog = nil
       @status = 'Ready.'
@@ -172,7 +175,7 @@ module PassTui
 
       @settings_form = TUI::Form.new(label_width: 12)
       @settings_form.text(:store_dir, 'Store dir', width: 40, required: true)
-      @settings_form.text(:clip_time, 'Clip detik', width: 8)
+      @settings_form.text(:clip_time, 'Clip secs', width: 8)
       @settings_form.text(:editor, 'Editor', width: 24)
       @theme_field = @settings_form.radio(:theme, 'Theme', options: PassTui::Theme::NAMES,
                                           orientation: :horizontal)
@@ -192,7 +195,7 @@ module PassTui
       stack = TUI::Layout::Stack.new(direction: :vertical)
       HELP.each { |entry| stack.add(TUI::Label.new(entry[0], style: entry[1]), size: TUI.fixed(1)) }
       stack.add(TUI::Label.new('', style: :text), size: TUI.fixed(1))
-      stack.add(TUI::Label.new('esc untuk menutup', style: :hint, align: :center), size: TUI.fixed(1))
+      stack.add(TUI::Label.new('esc to close', style: :hint, align: :center), size: TUI.fixed(1))
       box.add(stack)
       box
     end
@@ -215,6 +218,7 @@ module PassTui
         app.run
       ensure
         clear_clipboard
+        stop_sync
       end
     end
 
@@ -537,21 +541,71 @@ module PassTui
     # Pull the remote history and push the local one through `pass git`.
     # The store may not be a repository at all, so say so instead of
     # shelling out to a git command that cannot work.
+    #
+    # The work runs on a background thread so the tree stays navigable while
+    # git talks to the network; `tick` collects the result. Store#sync keeps
+    # its environment on the command line, so this never races the
+    # foreground `pass show` calls.
     def sync_store
       return if modal?
 
       unless @store.git?
         return message('Store is not a git repo; sync skipped')
       end
+      return message('Sync already running') if @syncing
 
+      start_sync
       message('Syncing over git…')
-      begin
-        @store.sync
-      rescue Store::Error => error
-        return message("Sync failed: #{first_line(error.message)}")
+      self
+    end
+
+    def syncing?
+      @syncing
+    end
+
+    # Start the background sync, reporting its outcome on the queue.
+    def start_sync
+      @syncing = true
+      @sync_queue = Queue.new
+      queue = @sync_queue
+      store = @store
+      @sync_thread = Thread.new do
+        begin
+          store.sync
+          queue << { ok: true }
+        rescue StandardError => error
+          queue << { ok: false, error: error.message }
+        end
       end
-      reload
-      message('Git sync complete (pull + push)')
+      update_indicator
+      self
+    end
+
+    # Collect a finished sync, if there is one. Called from `tick`, so the
+    # UI keeps rendering and handling keys while the thread runs.
+    def poll_sync
+      return self unless @syncing
+      return self if @sync_queue.nil? || @sync_queue.empty?
+
+      result = @sync_queue.pop
+      @syncing = false
+      @sync_thread = nil
+      update_indicator
+      if result[:ok]
+        reload
+        message('Git sync complete (pull + push)')
+      else
+        message("Sync failed: #{first_line(result[:error])}")
+      end
+      self
+    end
+
+    def stop_sync
+      # Do NOT Thread#kill here: that path segfaults the Spinel runtime.
+      # The sync thread is short-lived -- git finishes or fails on its own
+      # and the process tears it down at exit -- so just forget it.
+      @sync_thread = nil
+      @syncing = false
       self
     end
 
@@ -610,6 +664,7 @@ module PassTui
     def tick
       flush_pending
       expire_clipboard
+      poll_sync
       self
     end
 
@@ -723,7 +778,16 @@ module PassTui
     end
 
     def update_clip_indicator
-      @root.title_right = @clip_at ? 'clipboard terisi' : nil
+      update_indicator
+    end
+
+    # One indicator for the top-right corner: a running sync, a filled
+    # clipboard, or both.
+    def update_indicator
+      parts = []
+      parts << '⟳ syncing…' if @syncing
+      parts << 'clipboard filled' if @clip_at
+      @root.title_right = parts.empty? ? nil : parts.join('  ·  ')
       self
     end
 

@@ -200,6 +200,14 @@ the missing half -- moving those commits to and from a remote:
 * `g` in the TUI, or `pt --sync` from a script, runs `pass git pull
   --rebase` followed by `pass git push` and then reloads the tree, so
   changes made on another machine appear without restarting.
+* In the TUI the sync runs on a background thread: the tree, search and
+  detail pane stay responsive while git talks to the network. A `⟳
+  syncing…` marker appears in the top-right corner until it finishes, and
+  the status bar reports the result. Pressing `g` again while one is
+  running is ignored.
+* The store's environment is placed on the git command line rather than in
+  the process environment, so a background sync never races the foreground
+  `pass show` that is decrypting the selected entry.
 * A store that is not a git repository is left alone, with a note in the
   status bar instead of a failing command.
 * `GIT_TERMINAL_PROMPT=0` is set for the subprocess, so a remote that
@@ -234,7 +242,7 @@ The output binary is standalone.
 ruby test/run.rb      # or: rake test
 ```
 
-55 tests, stdlib only, on the same tiny harness ruby-tui uses: config,
+58 tests, stdlib only, on the same tiny harness ruby-tui uses: config,
 entry parsing, the tree model, the store and clipboard shell plumbing, the
 UI (including the fieldset layout and the reveal state) driven off-screen,
 and one end-to-end session in a pty that asserts the terminal is restored.

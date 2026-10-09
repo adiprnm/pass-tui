@@ -143,6 +143,7 @@ def write_fake_pass(dir, entries)
     when 'git'
       log = ENV['FAKE_PASS_LOG']
       File.write(log, "git #{ARGV[1..].join(' ')}\n", mode: 'a') if log
+      sleep ENV['FAKE_PASS_GIT_SLEEP'].to_f if ENV['FAKE_PASS_GIT_SLEEP']
       exit 1 if ENV['FAKE_PASS_GIT_FAIL']
     else
       warn "pass: unknown command #{ARGV[0]}"
@@ -209,6 +210,18 @@ def ui_select(ui, name)
   ui.search.value = name
   ui.select_path(name)
   ui.flush_pending(force: true)
+end
+
+# Drive the app's own tick until a background sync has been collected.
+def finish_sync(ui, timeout = 5.0)
+  deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+  loop do
+    ui.tick
+    break unless ui.syncing?
+    raise Harness::Failure, 'sync did not finish' if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+
+    sleep 0.01
+  end
 end
 
 # Strip SGR escapes so tests can assert on the visible text.

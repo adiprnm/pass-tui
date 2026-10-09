@@ -73,8 +73,13 @@ module PassTui
 
     # Run `pass git <args>` and return its output. `pass` auto-commits each
     # insert/edit/rm, so the local history is already current.
+    #
+    # The store environment goes on the command line rather than into the
+    # process environment (see capture_isolated): sync runs on a background
+    # thread while the foreground may still be running `pass show`, and two
+    # threads mutating ENV would race.
     def git(*args)
-      capture('git', *args)
+      capture_isolated('git', *args)
     end
 
     # Sync with the remote: rebase the local history on top of the remote,
@@ -82,8 +87,8 @@ module PassTui
     def sync
       raise Error, 'not a git repository' unless git?
 
-      pull = capture('git', 'pull', '--rebase')
-      push = capture('git', 'push')
+      pull = capture_isolated('git', 'pull', '--rebase')
+      push = capture_isolated('git', 'push')
       { pull: pull, push: push }
     end
 
@@ -115,6 +120,18 @@ module PassTui
         status = $?
         result
       end
+      raise Error, output.to_s.strip unless Shell.ok?(status)
+
+      output
+    end
+
+    # Like capture, but the pass environment is prefixed onto the shell
+    # command instead of written to ENV, so it is safe to call from a
+    # background thread. Values are single-quoted by Shell.escape.
+    def capture_isolated(*args)
+      assignments = env.map { |key, value| "#{key}=#{Shell.escape(value)}" }.join(' ')
+      output = `#{assignments} #{Shell.command(@pass_bin, args)} 2>&1`
+      status = $?
       raise Error, output.to_s.strip unless Shell.ok?(status)
 
       output

@@ -194,12 +194,50 @@ test 'g syncs the store over git' do
   attach_ui(ui)
 
   ui.sync_store
+  finish_sync(ui)
 
   assert_includes ui.status, 'Git sync complete'
   assert_includes File.read(log), "git pull --rebase\n"
   assert_includes File.read(log), "git push\n"
 ensure
   ENV.delete('FAKE_PASS_LOG')
+end
+
+test 'sync runs in the background so the tree stays usable' do
+  ui = make_ui(UI_ENTRIES)
+  FileUtils.mkdir_p(File.join(ui.store.dir, '.git'))
+  ENV['FAKE_PASS_GIT_SLEEP'] = '1'
+  attach_ui(ui)
+
+  ui.sync_store
+  assert ui.syncing?, 'the sync thread is running'
+  assert_includes ui.status, 'Syncing'
+
+  # Navigate while git is still busy: this must not block on the thread.
+  started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  ui.toggle_folder(ui.tree_view.rows.first.node)
+  elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+  assert elapsed < 0.5, "navigation took #{elapsed}s, expected it not to wait for sync"
+
+  finish_sync(ui)
+  refute ui.syncing?, 'sync finished'
+ensure
+  ENV.delete('FAKE_PASS_GIT_SLEEP')
+end
+
+test 'the indicator shows a running sync and a filled clipboard' do
+  ui = make_ui(UI_ENTRIES)
+  FileUtils.mkdir_p(File.join(ui.store.dir, '.git'))
+  ENV['FAKE_PASS_GIT_SLEEP'] = '1'
+  attach_ui(ui)
+
+  ui.sync_store
+  assert_includes ui.root.title_right.to_s, 'syncing'
+
+  finish_sync(ui)
+  assert_equal nil, ui.root.title_right
+ensure
+  ENV.delete('FAKE_PASS_GIT_SLEEP')
 end
 
 test 'sync reports when the store is not a git repository' do
@@ -220,4 +258,16 @@ test 'the layout fits exactly at several sizes' do
     assert_equal rows, lines.length, "#{cols}x#{rows} row count"
     lines.each { |line| assert_equal cols, line.length, "#{cols}x#{rows} width" }
   end
+end
+
+test 'the status message renders in a full frame after sync' do
+  ui = make_ui(UI_ENTRIES)
+  FileUtils.mkdir_p(File.join(ui.store.dir, '.git'))
+  app = attach_ui(ui)
+
+  ui.sync_store
+  finish_sync(ui)
+
+  assert_includes ui_text(app), 'Git sync complete'
+  refute ui_text(app).include?('syncing'), 'the indicator cleared'
 end
